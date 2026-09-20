@@ -9,8 +9,9 @@ SIKANDI-Agent adalah *service* berbasis Python ringan yang dipasang pada server/
 Sebelum melakukan instalasi pada server target, pastikan server memenuhi spesifikasi berikut:
 1. **OS Linux** (Ubuntu / Debian / CentOS / RHEL)
 2. **Python 3.8** atau lebih baru, beserta `pip` (`python3-pip`) dan modul Virtual Environment (`python3-venv`).
-3. **Akses Root / Sudo:** Mutlak dibutuhkan karena agen akan membaca log sistem (`/var/log/auth.log`) dan mengeksekusi blokir via `iptables`.
-4. (Opsional) **Node.js & PM2** untuk menjalankan agen di latar belakang *(background service)*.
+3. **Akses Root / Sudo:** Mutlak dibutuhkan karena agen akan membaca log sistem (`/var/log/auth.log` dan `/var/log/fail2ban.log`) serta mengeksekusi blokir via `fail2ban`/`iptables`.
+4. **Fail2ban (Sangat Direkomendasikan):** Digunakan untuk membaca log blokir otomatis dan mengeksekusi perintah blokir dari SOC SIKANDI agar lebih rapi (*tidak menumpuk di iptables mentah*).
+5. (Opsional) **Node.js & PM2** untuk menjalankan agen di latar belakang *(background service)*.
 
 ---
 
@@ -90,13 +91,15 @@ sudo pm2 startup
 
 ---
 
-## 🛡️ Fitur Otomatisasi (Blacklist Sync & Iptables)
+## 🛡️ Fitur Otomatisasi (Blacklist Sync & Fail2ban)
 
 Agen SIKANDI memiliki *thread* **Blacklist Sync** yang berjalan setiap 30 detik.
 1. Agen akan mengunduh daftar IP yang di-blokir *(HitL Execution)* dari SIKANDI Utama.
-2. Jika ada IP penyerang baru, agen akan otomatis mengeksekusi:
-   `iptables -A INPUT -s {IP} -j DROP`
-3. Seluruh log eksekusi blokir dapat dilihat menggunakan perintah:
+2. Jika ada IP penyerang baru, agen akan otomatis mengeksekusi perintah blokir via **Fail2ban**:
+   `fail2ban-client set sshd banip {IP}`
+3. *(Fallback)* Jika Fail2ban tidak tersedia, agen otomatis menggunakan:
+   `iptables -I INPUT 1 -s {IP} -j DROP`
+4. Seluruh log eksekusi blokir dapat dilihat menggunakan perintah:
    ```bash
    sudo pm2 logs sikandi-agent
    ```
