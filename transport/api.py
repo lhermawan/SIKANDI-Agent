@@ -113,3 +113,30 @@ class ApiClient:
         except Exception as e:
             logger.error(f"Failed to fetch blacklist: {e}")
             return []
+
+    def fetch_commands(self):
+        try:
+            resp = requests.get(f"{self.base_url}/commands", headers=self._headers(), timeout=self.timeout)
+            if resp.status_code == 200:
+                return resp.json().get('commands', [])
+            return []
+        except Exception as e:
+            logger.error(f"Failed to fetch commands: {e}")
+            return []
+            
+    def send_command_result(self, command_id, result):
+        try:
+            payload = {
+                "command_id": command_id,
+                "result": result
+            }
+            resp = requests.post(f"{self.base_url}/commands/{command_id}/result", headers=self._headers(), json=payload, timeout=self.timeout)
+            if resp.status_code in [200, 201]:
+                logger.info(f"Successfully sent result for command {command_id}")
+                return True
+            else:
+                logger.error(f"Failed to send result for command {command_id}: HTTP {resp.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"Error sending command result: {e}")
+            return False

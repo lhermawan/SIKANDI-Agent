@@ -6,6 +6,7 @@ from transport.api import ApiClient
 from transport.queue import EventQueue
 from collectors.system import SystemCollector
 from collectors.services import ServiceCollector
+from collectors.disk_manager import DiskManager
 from security.correlation import CorrelationEngine
 from security.deduplication import Deduplicator
 import threading
@@ -22,6 +23,7 @@ class SikandiAgent:
         self.queue = EventQueue(self.config)
         self.system = SystemCollector()
         self.services = ServiceCollector()
+        self.disk_manager = DiskManager()
         self.correlation = CorrelationEngine()
         self.deduplicator = Deduplicator(self.config)
         
@@ -39,6 +41,7 @@ class SikandiAgent:
         threading.Thread(target=self._security_loop, daemon=True).start()
         threading.Thread(target=self._queue_flush_loop, daemon=True).start()
         threading.Thread(target=self._blacklist_loop, daemon=True).start()
+        threading.Thread(target=self._command_loop, daemon=True).start()
 
         try:
             while True:
@@ -183,6 +186,35 @@ class SikandiAgent:
             
             # Polling setiap 30 detik
             time.sleep(30)
+
+    def _command_loop(self):
+        logger.info("Command loop started.")
+        while True:
+            try:
+                commands = self.api.fetch_commands()
+                for cmd in commands:
+                    command_id = cmd.get("id")
+                    action = cmd.get("action")
+                    paths = cmd.get("paths", [])
+                    
+                    if not command_id or not action:
+                        continue
+                        
+                    logger.info(f"Received command {action} for paths {paths}")
+                    
+                    if action == "scan_disk":
+                        result = self.disk_manager.scan_directories(paths)
+                        self.api.send_command_result(command_id, result)
+                    elif action == "delete_files":
+                        result = self.disk_manager.delete_paths(paths)
+                        self.api.send_command_result(command_id, result)
+                    else:
+                        logger.warning(f"Unknown command action: {action}")
+                        
+            except Exception as e:
+                logger.error(f"Command loop error: {e}")
+                
+            time.sleep(15)
 
     def _run_test_mode(self):
         logger.info("Test mode: Generating mock security events...")
