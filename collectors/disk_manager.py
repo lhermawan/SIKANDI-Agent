@@ -8,7 +8,14 @@ class DiskManager:
     def __init__(self, safe_paths=None):
         # Default safe paths that can be scanned/deleted
         if safe_paths is None:
-            self.safe_paths = ['/var/cache', '/tmp', '/var/log']
+            self.safe_paths = [
+                '/var/cache', 
+                '/tmp', 
+                '/var/log',
+                '/var/www',        # Web directories (Laravel storage/logs, public/build)
+                '/root/.npm',      # NPM global cache
+                '/root/.cache'     # Other root caches (composer, yarn)
+            ]
         else:
             self.safe_paths = safe_paths
             
