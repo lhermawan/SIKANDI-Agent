@@ -70,6 +70,7 @@ class SikandiAgent:
         from collectors.processes import ProcessCollector
         from collectors.network import NetworkCollector
         from collectors.file_integrity import FIMCollector
+        from collectors.fail2ban_collector import Fail2banCollector
         
         from detectors.brute_force import BruteForceDetector
         from detectors.suspicious_process import SuspiciousProcessDetector
@@ -84,6 +85,7 @@ class SikandiAgent:
         proc_coll = ProcessCollector()
         net_coll = NetworkCollector()
         fim_coll = FIMCollector(self.config)
+        f2b_coll = Fail2banCollector()
         
         brute_det = BruteForceDetector(self.config)
         proc_det = SuspiciousProcessDetector()
@@ -109,6 +111,9 @@ class SikandiAgent:
                     
                     fims = fim_coll.collect()
                     events.extend(fims)
+                    
+                    f2b_events = f2b_coll.collect()
+                    events.extend(f2b_events)
                     
                     # 2. Detect
                     events.extend(brute_det.analyze(logins))
@@ -165,19 +170,28 @@ class SikandiAgent:
                 if blacklist:
                     for ip in blacklist:
                         if ip not in self.blocked_ips:
-                            logger.warning(f"ACTION REQUIRED: Blocking IP {ip} via iptables")
-                            # Eksekusi blokir via iptables
-                            # Note: membutuhkan hak akses sudo/root
+                            logger.warning(f"ACTION REQUIRED: Blocking IP {ip}")
+                            # Eksekusi blokir via fail2ban (lebih rapi), fallback ke iptables jika gagal
                             try:
-                                # Cek dulu apakah rule sudah ada di iptables
+                                # Coba pakai fail2ban di jail sshd
+                                result = subprocess.run(['fail2ban-client', 'set', 'sshd', 'banip', ip], capture_output=True, text=True)
+                                if result.returncode == 0 or "already banned" in result.stdout.lower():
+                                    logger.info(f"SUCCESS: IP {ip} blocked successfully via fail2ban (sshd jail).")
+                                    self.blocked_ips.add(ip)
+                                    continue
+                            except FileNotFoundError:
+                                pass # fail2ban-client not found
+
+                            # Fallback to iptables
+                            logger.info("Falling back to iptables...")
+                            try:
                                 subprocess.run(['iptables', '-C', 'INPUT', '-s', ip, '-j', 'DROP'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                                logger.info(f"Rule for IP {ip} already exists. Skipping insertion.")
+                                logger.info(f"Rule for IP {ip} already exists in iptables. Skipping insertion.")
                                 self.blocked_ips.add(ip)
                             except subprocess.CalledProcessError:
-                                # Jika belum ada, baru insert di posisi paling atas
                                 try:
                                     subprocess.run(['iptables', '-I', 'INPUT', '1', '-s', ip, '-j', 'DROP'], check=True)
-                                    logger.info(f"SUCCESS: IP {ip} blocked successfully.")
+                                    logger.info(f"SUCCESS: IP {ip} blocked successfully via iptables.")
                                     self.blocked_ips.add(ip)
                                 except subprocess.CalledProcessError as e:
                                     logger.error(f"FAILED to block IP {ip}: {e}")
