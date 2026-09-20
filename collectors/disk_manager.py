@@ -26,7 +26,7 @@ class DiskManager:
                 return True
         return False
 
-    def scan_directories(self, paths):
+    def scan_directories(self, paths, max_depth=3):
         results = []
         for path in paths:
             if not self._is_safe(path):
@@ -34,12 +34,27 @@ class DiskManager:
                 continue
             
             if os.path.exists(path):
-                results.append(self._get_tree(path))
+                results.append(self._get_tree(path, current_depth=0, max_depth=max_depth))
             else:
                 logger.warning(f"Path {path} does not exist.")
         return results
 
-    def _get_tree(self, path):
+    def _get_dir_size(self, path):
+        total = 0
+        try:
+            for dirpath, _, filenames in os.walk(path):
+                for f in filenames:
+                    fp = os.path.join(dirpath, f)
+                    if not os.path.islink(fp):
+                        try:
+                            total += os.path.getsize(fp)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        return total
+
+    def _get_tree(self, path, current_depth=0, max_depth=3):
         tree = {
             "name": os.path.basename(path) or path,
             "path": path,
@@ -50,17 +65,22 @@ class DiskManager:
         
         try:
             if os.path.isdir(path):
-                for item in os.listdir(path):
-                    item_path = os.path.join(path, item)
-                    try:
-                        child_tree = self._get_tree(item_path)
-                        if child_tree:
-                            tree["children"].append(child_tree)
-                            tree["size"] += child_tree["size"]
-                    except PermissionError:
-                        pass
+                if current_depth >= max_depth:
+                    # Just calculate size, don't build children tree to avoid huge JSON payload
+                    tree["size"] = self._get_dir_size(path)
+                else:
+                    for item in os.listdir(path):
+                        item_path = os.path.join(path, item)
+                        try:
+                            child_tree = self._get_tree(item_path, current_depth + 1, max_depth)
+                            if child_tree:
+                                tree["children"].append(child_tree)
+                                tree["size"] += child_tree["size"]
+                        except PermissionError:
+                            pass
             else:
-                tree["size"] = os.path.getsize(path)
+                if not os.path.islink(path):
+                    tree["size"] = os.path.getsize(path)
         except Exception as e:
             logger.debug(f"Error accessing {path}: {e}")
             
