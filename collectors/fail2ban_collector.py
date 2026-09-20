@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 class Fail2banCollector:
     def __init__(self):
         self.log_file = "/var/log/fail2ban.log"
-        self.ban_pattern = re.compile(r'\[(.*?)\]\s+(Ban|Unban)\s+([0-9\.]+)')
+        self.ban_pattern = re.compile(r'\[([^\]]+)\]\s+(Ban|Unban)\s+([0-9\.]+)')
         self.last_pos = 0
         
         # Inisialisasi ke akhir file agar tidak mengulang baca log lama
