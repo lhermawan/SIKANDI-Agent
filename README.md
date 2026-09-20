@@ -74,8 +74,47 @@ sudo ./venv/bin/python3 agent.py
 
 ## 🏃‍♂️ Menjalankan di Latar Belakang (Production Mode)
 
-Agar agen tetap hidup saat terminal ditutup, gunakan **PM2**.
-Karena agen butuh akses *root* untuk memodifikasi `iptables`, pastikan PM2 dijalankan oleh *root*.
+Agar agen tetap hidup secara otomatis di latar belakang (*background*), Anda dapat memilih salah satu dari dua metode berikut. Pastikan dijalankan sebagai **root** karena agen butuh memodifikasi iptables/fail2ban.
+
+### Opsi A: Menggunakan Systemd (Direkomendasikan - Native Linux)
+
+Metode ini tidak memerlukan instalasi tambahan (seperti Node.js/PM2) karena `systemd` adalah bawaan mayoritas OS Linux.
+
+1. Buat file service baru:
+   ```bash
+   sudo nano /etc/systemd/system/sikandi-agent.service
+   ```
+2. Isi file tersebut dengan konfigurasi berikut (pastikan path direktori `/opt/sikandi-agent` sudah sesuai):
+   ```ini
+   [Unit]
+   Description=SIKANDI Intelligent Security Monitoring Agent
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=root
+   WorkingDirectory=/opt/sikandi-agent
+   ExecStart=/opt/sikandi-agent/venv/bin/python3 /opt/sikandi-agent/agent.py
+   Restart=always
+   RestartSec=10
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+3. Reload daemon, mulai service, dan buat agar otomatis berjalan saat *boot*:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl start sikandi-agent
+   sudo systemctl enable sikandi-agent
+   ```
+4. Untuk melihat log secara real-time:
+   ```bash
+   sudo journalctl -u sikandi-agent -f
+   ```
+
+### Opsi B: Menggunakan PM2 (Berbasis Node.js)
+
+Metode ini cocok jika di server Anda sudah terinstal Node.js dan Anda terbiasa mengelola service dengan PM2.
 
 ```bash
 # Install PM2 jika belum ada (membutuhkan Node.js)
