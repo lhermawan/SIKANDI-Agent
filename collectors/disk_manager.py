@@ -22,7 +22,9 @@ class DiskManager:
     def _is_safe(self, target_path):
         target = os.path.abspath(target_path)
         for safe in self.safe_paths:
-            if target.startswith(os.path.abspath(safe)):
+            safe_abs = os.path.abspath(safe)
+            # Menggunakan commonpath untuk validasi hirarki direktori secara aman
+            if os.path.commonpath([safe_abs, target]) == safe_abs:
                 return True
         return False
 
