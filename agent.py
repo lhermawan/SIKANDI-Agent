@@ -222,6 +222,9 @@ class SikandiAgent:
                     elif action == "delete_files":
                         result = self.disk_manager.delete_paths(paths)
                         self.api.send_command_result(command_id, result)
+                    elif action == "unban_ip":
+                        result = self._handle_unban(paths)
+                        self.api.send_command_result(command_id, result)
                     else:
                         logger.warning(f"Unknown command action: {action}")
                         
@@ -229,6 +232,47 @@ class SikandiAgent:
                 logger.error(f"Command loop error: {e}")
                 
             time.sleep(15)
+
+    def _handle_unban(self, ips):
+        if not ips:
+            return {"success": False, "message": "No IPs provided"}
+        
+        target_ip = ips[0]
+        logger.info(f"Executing UNBAN for IP: {target_ip}")
+        success = False
+        messages = []
+        
+        # 1. Unban from fail2ban
+        try:
+            res_f2b = subprocess.run(['fail2ban-client', 'set', 'sshd', 'unbanip', target_ip], capture_output=True, text=True)
+            if res_f2b.returncode == 0:
+                messages.append("Unbanned from fail2ban (sshd)")
+                success = True
+            else:
+                messages.append(f"Fail2ban output: {res_f2b.stdout.strip()}")
+        except FileNotFoundError:
+            messages.append("fail2ban-client not found")
+            
+        # 2. Unban from iptables
+        try:
+            res_iptables = subprocess.run(['iptables', '-D', 'INPUT', '-s', target_ip, '-j', 'DROP'], capture_output=True, text=True)
+            if res_iptables.returncode == 0:
+                messages.append("Removed from iptables")
+                success = True
+            else:
+                messages.append("Not found in iptables")
+        except FileNotFoundError:
+            messages.append("iptables not found")
+            
+        if hasattr(self, 'blocked_ips') and target_ip in self.blocked_ips:
+            self.blocked_ips.remove(target_ip)
+            
+        return {
+            "success": success or "Removed" in messages[-1] or "Unbanned" in messages[0],
+            "message": " | ".join(messages),
+            "ip": target_ip
+        }
+
 
     def _run_test_mode(self):
         logger.info("Test mode: Generating mock security events...")
