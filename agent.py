@@ -89,7 +89,7 @@ class SikandiAgent:
         
         brute_det = BruteForceDetector(self.config)
         proc_det = SuspiciousProcessDetector()
-        net_det = SuspiciousNetworkDetector()
+        net_det = SuspiciousNetworkDetector(self.config)
         pers_det = PersistenceDetector()
         priv_det = PrivilegeEscalationDetector()
         login_det = SuspiciousLoginDetector()
