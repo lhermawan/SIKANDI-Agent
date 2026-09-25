@@ -222,6 +222,28 @@ class SikandiAgent:
                     elif action == "delete_files":
                         result = self.disk_manager.delete_paths(paths)
                         self.api.send_command_result(command_id, result)
+                    elif action == "unban_ip":
+                        target_ip = paths[0] if paths else None
+                        unban_status = "failed"
+                        if target_ip:
+                            # 1. Unban from fail2ban if installed
+                            try:
+                                subprocess.run(['fail2ban-client', 'set', 'sshd', 'unbanip', target_ip], capture_output=True, text=True)
+                            except Exception as e:
+                                logger.debug(f"fail2ban unban exception: {e}")
+                            # 2. Delete iptables DROP rule(s) for this IP
+                            try:
+                                while True:
+                                    res = subprocess.run(['iptables', '-D', 'INPUT', '-s', target_ip, '-j', 'DROP'], capture_output=True)
+                                    if res.returncode != 0:
+                                        break
+                                unban_status = "unbanned"
+                                logger.info(f"SUCCESS: IP {target_ip} unbanned from iptables and fail2ban.")
+                            except Exception as e:
+                                logger.error(f"Error unbanning IP {target_ip} from iptables: {e}")
+                            if hasattr(self, 'blocked_ips') and target_ip in self.blocked_ips:
+                                self.blocked_ips.discard(target_ip)
+                        self.api.send_command_result(command_id, {"status": unban_status, "ip": target_ip})
                     else:
                         logger.warning(f"Unknown command action: {action}")
                         

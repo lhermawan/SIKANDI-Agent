@@ -19,10 +19,27 @@ class DiskManager:
         else:
             self.safe_paths = safe_paths
             
-    def _is_safe(self, target_path):
+    def _is_safe(self, target_path, for_deletion=False):
         target = os.path.abspath(target_path)
+        # Never allow root or critical system directories
+        if target in ['/', '/etc', '/bin', '/sbin', '/usr', '/boot', '/root', '/home', '/var', '/var/www']:
+            return False
+
+        if for_deletion:
+            # Disallow /var/www and /var/log completely from remote deletion
+            safe_delete_paths = ['/var/cache', '/tmp', '/root/.npm', '/root/.cache']
+            for safe in safe_delete_paths:
+                safe_abs = os.path.abspath(safe)
+                # Never delete the safe directory root itself (e.g. /tmp, /var/cache)
+                if target == safe_abs:
+                    return False
+                if target.startswith(safe_abs + os.sep):
+                    return True
+            return False
+
         for safe in self.safe_paths:
-            if target.startswith(os.path.abspath(safe)):
+            safe_abs = os.path.abspath(safe)
+            if target == safe_abs or target.startswith(safe_abs + os.sep):
                 return True
         return False
 
@@ -90,7 +107,7 @@ class DiskManager:
         deleted = []
         failed = []
         for path in paths:
-            if not self._is_safe(path):
+            if not self._is_safe(path, for_deletion=True):
                 failed.append({"path": path, "reason": "Not in safe paths"})
                 continue
                 
