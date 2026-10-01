@@ -19,10 +19,17 @@ class DiskManager:
         else:
             self.safe_paths = safe_paths
             
-    def _is_safe(self, target_path):
+    def _is_safe(self, target_path, for_deletion=False):
         target = os.path.abspath(target_path)
+        # Jangan pernah izinkan root sistem operasi atau direktori sistem kritis
+        if target in ["/", "/etc", "/bin", "/sbin", "/usr", "/boot", "/root", "/home", "/var"]:
+            return False
+
         for safe in self.safe_paths:
             safe_abs = os.path.abspath(safe)
+            if for_deletion and target == safe_abs:
+                # Cegah penghapusan direktori root aman itu sendiri (mis. jangan rmtree /var/www atau /tmp)
+                continue
             # Menggunakan commonpath untuk validasi hirarki direktori secara aman
             if os.path.commonpath([safe_abs, target]) == safe_abs:
                 return True
@@ -92,8 +99,8 @@ class DiskManager:
         deleted = []
         failed = []
         for path in paths:
-            if not self._is_safe(path):
-                failed.append({"path": path, "reason": "Not in safe paths"})
+            if not self._is_safe(path, for_deletion=True):
+                failed.append({"path": path, "reason": "Not in safe paths or target is a root directory"})
                 continue
                 
             if not os.path.exists(path):

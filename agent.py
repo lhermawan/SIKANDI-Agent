@@ -242,21 +242,34 @@ class SikandiAgent:
         success = False
         messages = []
         
-        # 1. Unban from fail2ban
+        # 1. Unban from fail2ban (unban dari semua jail: sshd, nginx-forbidden, botsearch, dll)
         try:
-            res_f2b = subprocess.run(['fail2ban-client', 'set', 'sshd', 'unbanip', target_ip], capture_output=True, text=True)
+            res_f2b = subprocess.run(['fail2ban-client', 'unban', target_ip], capture_output=True, text=True)
             if res_f2b.returncode == 0:
-                messages.append("Unbanned from fail2ban (sshd)")
+                unbanned_count = res_f2b.stdout.strip()
+                messages.append(f"Unbanned from fail2ban ({unbanned_count} jail)")
                 success = True
             else:
-                messages.append(f"Fail2ban output: {res_f2b.stdout.strip()}")
+                # Fallback ke jail sshd spesifik jika unban global gagal
+                res_sshd = subprocess.run(['fail2ban-client', 'set', 'sshd', 'unbanip', target_ip], capture_output=True, text=True)
+                if res_sshd.returncode == 0:
+                    messages.append("Unbanned from fail2ban (sshd fallback)")
+                    success = True
+                else:
+                    messages.append(f"Fail2ban output: {res_f2b.stdout.strip() or res_f2b.stderr.strip()}")
         except FileNotFoundError:
             messages.append("fail2ban-client not found")
             
-        # 2. Unban from iptables
+        # 2. Unban from iptables (loop sampai semua DROP rule untuk IP target terhapus bersih)
         try:
-            res_iptables = subprocess.run(['iptables', '-D', 'INPUT', '-s', target_ip, '-j', 'DROP'], capture_output=True, text=True)
-            if res_iptables.returncode == 0:
+            iptables_removed = False
+            while True:
+                res_iptables = subprocess.run(['iptables', '-D', 'INPUT', '-s', target_ip, '-j', 'DROP'], capture_output=True, text=True)
+                if res_iptables.returncode == 0:
+                    iptables_removed = True
+                else:
+                    break
+            if iptables_removed:
                 messages.append("Removed from iptables")
                 success = True
             else:
@@ -265,7 +278,7 @@ class SikandiAgent:
             messages.append("iptables not found")
             
         if hasattr(self, 'blocked_ips') and target_ip in self.blocked_ips:
-            self.blocked_ips.remove(target_ip)
+            self.blocked_ips.discard(target_ip)
             
         return {
             "success": success or "Removed" in messages[-1] or "Unbanned" in messages[0],
