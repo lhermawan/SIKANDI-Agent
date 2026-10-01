@@ -89,7 +89,7 @@ class SikandiAgent:
         
         brute_det = BruteForceDetector(self.config)
         proc_det = SuspiciousProcessDetector()
-        net_det = SuspiciousNetworkDetector()
+        net_det = SuspiciousNetworkDetector(self.config)
         pers_det = PersistenceDetector()
         priv_det = PrivilegeEscalationDetector()
         login_det = SuspiciousLoginDetector()
@@ -223,27 +223,8 @@ class SikandiAgent:
                         result = self.disk_manager.delete_paths(paths)
                         self.api.send_command_result(command_id, result)
                     elif action == "unban_ip":
-                        target_ip = paths[0] if paths else None
-                        unban_status = "failed"
-                        if target_ip:
-                            # 1. Unban from fail2ban if installed
-                            try:
-                                subprocess.run(['fail2ban-client', 'set', 'sshd', 'unbanip', target_ip], capture_output=True, text=True)
-                            except Exception as e:
-                                logger.debug(f"fail2ban unban exception: {e}")
-                            # 2. Delete iptables DROP rule(s) for this IP
-                            try:
-                                while True:
-                                    res = subprocess.run(['iptables', '-D', 'INPUT', '-s', target_ip, '-j', 'DROP'], capture_output=True)
-                                    if res.returncode != 0:
-                                        break
-                                unban_status = "unbanned"
-                                logger.info(f"SUCCESS: IP {target_ip} unbanned from iptables and fail2ban.")
-                            except Exception as e:
-                                logger.error(f"Error unbanning IP {target_ip} from iptables: {e}")
-                            if hasattr(self, 'blocked_ips') and target_ip in self.blocked_ips:
-                                self.blocked_ips.discard(target_ip)
-                        self.api.send_command_result(command_id, {"status": unban_status, "ip": target_ip})
+                        result = self._handle_unban(paths)
+                        self.api.send_command_result(command_id, result)
                     else:
                         logger.warning(f"Unknown command action: {action}")
                         
@@ -251,6 +232,60 @@ class SikandiAgent:
                 logger.error(f"Command loop error: {e}")
                 
             time.sleep(15)
+
+    def _handle_unban(self, ips):
+        if not ips:
+            return {"success": False, "message": "No IPs provided"}
+        
+        target_ip = ips[0]
+        logger.info(f"Executing UNBAN for IP: {target_ip}")
+        success = False
+        messages = []
+        
+        # 1. Unban from fail2ban (unban dari semua jail: sshd, nginx-forbidden, botsearch, dll)
+        try:
+            res_f2b = subprocess.run(['fail2ban-client', 'unban', target_ip], capture_output=True, text=True)
+            if res_f2b.returncode == 0:
+                unbanned_count = res_f2b.stdout.strip()
+                messages.append(f"Unbanned from fail2ban ({unbanned_count} jail)")
+                success = True
+            else:
+                # Fallback ke jail sshd spesifik jika unban global gagal
+                res_sshd = subprocess.run(['fail2ban-client', 'set', 'sshd', 'unbanip', target_ip], capture_output=True, text=True)
+                if res_sshd.returncode == 0:
+                    messages.append("Unbanned from fail2ban (sshd fallback)")
+                    success = True
+                else:
+                    messages.append(f"Fail2ban output: {res_f2b.stdout.strip() or res_f2b.stderr.strip()}")
+        except FileNotFoundError:
+            messages.append("fail2ban-client not found")
+            
+        # 2. Unban from iptables (loop sampai semua DROP rule untuk IP target terhapus bersih)
+        try:
+            iptables_removed = False
+            while True:
+                res_iptables = subprocess.run(['iptables', '-D', 'INPUT', '-s', target_ip, '-j', 'DROP'], capture_output=True, text=True)
+                if res_iptables.returncode == 0:
+                    iptables_removed = True
+                else:
+                    break
+            if iptables_removed:
+                messages.append("Removed from iptables")
+                success = True
+            else:
+                messages.append("Not found in iptables")
+        except FileNotFoundError:
+            messages.append("iptables not found")
+            
+        if hasattr(self, 'blocked_ips') and target_ip in self.blocked_ips:
+            self.blocked_ips.discard(target_ip)
+            
+        return {
+            "success": success or "Removed" in messages[-1] or "Unbanned" in messages[0],
+            "message": " | ".join(messages),
+            "ip": target_ip
+        }
+
 
     def _run_test_mode(self):
         logger.info("Test mode: Generating mock security events...")

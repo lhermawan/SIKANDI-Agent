@@ -1,7 +1,10 @@
-﻿config.yaml
-__pycache__/
-*.pyc
-__pycache__/
-test_cache/
 config.yaml
 config.yaml*
+__pycache__/
+*.py[cod]
+*.class
+venv/
+.venv/
+test_cache/
+*.log
+.DS_Store
